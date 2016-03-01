@@ -1,0 +1,28 @@
+﻿//#pragma kernel CSCopyBufferToRenderTexture
+//RWTexture2D<float4> outHeightMap;
+//Texture2D<float4> existingMap;
+//
+//SamplerState _LinearClamp;
+//SamplerState _LinearRepeat;
+//SamplerState _PointClamp;
+//SamplerState _PointRepeat;
+//
+//
+//[numthreads(16,16,1)]
+//void CSCopyBufferToRenderTexture(uint2 id : SV_DispatchThreadID)
+//{
+//    int w, h;
+//    outHeightMap.GetDimensions(w, h);
+// 
+// 	uint index = id.x+ id.y*w;
+//    //float4 t = tex4.SampleLevel(_PointClamp, uv, 0);
+//    //heightMap[id] = t;
+//   	float2 uv = float2(((float)id.x)/(float)w, ((float)id.y)/(float)h);
+//   	float baseMapHeight = existingMap.SampleLevel(_PointClamp, uv, 0).y;
+//
+//   	float curMappedHeight =  _HeightmapDims.y + baseMapHeight; //+ t.y;
+//	float fin = curMappedHeight/_HeightmapDims.w;
+//	
+//    outHeightMap[id] = float4 (fin, fin,fin,1);
+//}
+//

@@ -1,0 +1,121 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+
+float4 _SingularityPosANDdt;
+float4 _GravDampSphereDown;
+float _Time;
+
+
+RWStructuredBuffer<float3> WvertPos;
+RWStructuredBuffer<float3> WvertVel;
+StructuredBuffer<float3> RvertPos;
+StructuredBuffer<float3> RvertVel;
+
+[numthreads(64,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+	float truID = id.x; //+ id.x*id.y + id.x*id.y*id.z;
+	float3 lastPos = RvertPos[truID];
+	float3 diff = lastPos - _SingularityPosANDdt.xyz;
+	float3 dir = -normalize(diff);
+	float dist = length(diff);
+	
+	dist = max(dist - _GravDampSphereDown.z,0.0);
+	
+	//	lastVelocity * Dampening (1 when mouse down, 0.9 when up) + FORCE (direction * dist to singularity * Gravity force (1)  * isDown(0 if up) all timesDeltaTime
+	float3 vel = RvertVel[truID]*_GravDampSphereDown.y + dir*(_GravDampSphereDown.x*_GravDampSphereDown.w) * _SingularityPosANDdt.w;
+	WvertVel[truID] = vel;
+	WvertPos[truID] = lastPos + vel; //= vel;
+
+    // TODO: insert actual code here!
+	
+}
+
+
+
+#pragma kernel CSDance
+
+[numthreads(64,1,1)]
+void CSDance (uint3 id : SV_DispatchThreadID)
+{
+	float truID = id.x; //+ id.x*id.y + id.x*id.y*id.z;
+	float3 lastPos = RvertPos[truID];
+	float3 diff = lastPos - float3(cos(lastPos.z*0.4f)*5, sin(lastPos.z*0.4f)*5, lastPos.z);
+	float3 dir = -normalize(diff);
+	
+	float dist = length(diff);
+	dist = max(dist - _GravDampSphereDown.z,0.0);
+
+	float3 force = dir*0.05*dist*0.1f;     
+	float damp = lerp(0.9,1,saturate(_GravDampSphereDown.z-dist));
+	//	lastVelocity * Dampening (1 when mouse down, 0.9 when up) + FORCE (direction * dist to singularity * Gravity force (1)  * isDown(0 if up) all timesDeltaTime
+	//float3 vel = RvertVel[truID]*_GravDampSphereDown.y + dir*(_GravDampSphereDown.x*_GravDampSphereDown.w) * _SingularityPosANDdt.w;
+	float3 vel = RvertVel[truID]*damp;//*_GravDampSphereDown.y;
+	vel += float3(force.x, force.y + _SingularityPosANDdt.w*sin(_Time*0.7f), _SingularityPosANDdt.w*cos(_Time*0.7f));
+	
+	WvertVel[truID] = vel;
+	WvertPos[truID] = lastPos + vel; //= vel;
+
+    // TODO: insert actual code here!
+	
+}
+
+
+#pragma kernel CSTwirl
+
+[numthreads(64,1,1)]
+void CSTwirl (uint3 id : SV_DispatchThreadID)
+{
+	float truID = id.x; //+ id.x*id.y + id.x*id.y*id.z;
+	float3 lastPos = RvertPos[truID];
+	float3 diff = lastPos - float3(cos(lastPos.z*0.4f)*5, sin(lastPos.z*0.4f)*5+ 5*_SingularityPosANDdt.w*sin(_Time*0.7f), lastPos.z);
+	float3 dir = -normalize(diff);
+	
+	float dist = length(diff);
+	dist = max(dist - _GravDampSphereDown.z,0.0);
+
+	float3 force = dir*0.05*dist*0.1f;
+	float damp = lerp(0.9,1,saturate(_GravDampSphereDown.z-dist));
+	//	lastVelocity * Dampening (1 when mouse down, 0.9 when up) + FORCE (direction * dist to singularity * Gravity force (1)  * isDown(0 if up) all timesDeltaTime
+	//float3 vel = RvertVel[truID]*_GravDampSphereDown.y + dir*(_GravDampSphereDown.x*_GravDampSphereDown.w) * _SingularityPosANDdt.w;
+	float3 vel = RvertVel[truID]*damp;//*_GravDampSphereDown.y;
+	vel += float3(force.x, force.y, _SingularityPosANDdt.w*cos(_Time*0.7f));
+	
+	WvertVel[truID] = vel;
+	WvertPos[truID] = lastPos + vel; //= vel;
+
+    // TODO: insert actual code here!
+	
+}
+
+#pragma kernel CSTwirl2
+
+[numthreads(64,1,1)]
+void CSTwirl2 (uint3 id : SV_DispatchThreadID)
+{
+	float truID = id.x; //+ id.x*id.y + id.x*id.y*id.z;
+	float3 lastPos = RvertPos[truID];
+	float3 diff = lastPos - float3(cos(lastPos.z*0.4f)*5, sin(lastPos.z*0.4f)*5+ 5*_SingularityPosANDdt.w*sin(_Time*0.7f), lastPos.z);
+	
+	float3 dir = -normalize(diff);
+	
+	float dist = length(diff);
+	dist = max(dist - _GravDampSphereDown.z,0.0);
+
+	float3 force = dir*0.05*dist*0.1f;
+	float damp = lerp(0.9,1,saturate(_GravDampSphereDown.z-dist));
+	//	lastVelocity * Dampening (1 when mouse down, 0.9 when up) + FORCE (direction * dist to singularity * Gravity force (1)  * isDown(0 if up) all timesDeltaTime
+	//	float3 vel = RvertVel[truID]*_GravDampSphereDown.y + dir*(_GravDampSphereDown.x*_GravDampSphereDown.w) * _SingularityPosANDdt.w;
+	float3 vel = RvertVel[truID]*damp;//*_GravDampSphereDown.y;
+	vel += float3(force.x, force.y, _SingularityPosANDdt.w*cos(_Time*0.7f));
+	
+	WvertVel[truID] = vel;
+	WvertPos[truID] = lastPos + vel; //= vel;
+
+    // TODO: insert actual code here!
+	
+}
+

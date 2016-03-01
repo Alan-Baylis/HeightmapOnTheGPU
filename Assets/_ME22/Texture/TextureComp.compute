@@ -1,0 +1,73 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+
+#pragma kernel CSMainT1
+
+RWTexture2D<float4> tex1;
+
+
+[numthreads(8,8,1)]
+void CSMainT1(uint2 id : SV_DispatchThreadID)
+{
+	float w, h;
+
+	tex1.GetDimensions(w,h);
+	tex1[id] = float4(1 , id.x/w, id.y/h, 1.0);
+
+	//tex1[id] = float4(id.x / w, id.y / h, 0.0, 1.0);
+}
+
+#pragma kernel CSMainT2
+
+RWTexture2D<float4> tex2;
+
+
+[numthreads(8,8,1)]
+void CSMainT2(uint2 id : SV_DispatchThreadID)
+{
+	float w, h;
+
+	tex2.GetDimensions(w,h);
+	tex2[id] = float4(0 , id.x/w, id.y/h, 1.0);
+
+	//tex1[id] = float4(id.x / w, id.y / h, 0.0, 1.0);
+}
+
+
+#pragma kernel CSMainT3
+ 
+RWTexture2D<float4> tex3Copy;
+Texture2D<float4> tex3;
+ 
+[numthreads(8,8,1)]
+void CSMainT3(uint2 id : SV_DispatchThreadID)
+{
+	float m = 2;//floor(fmod(2, 4)); //mipmap Depth
+    float4 t;
+   // t = float4(1,1,1,2) - tex3[id];
+   // t = tex3.Load(uint3(id, 0));
+    t = tex3.mips[m][id];
+    tex3Copy[id] = t;
+}
+
+#pragma kernel CSMainT4
+ 
+RWTexture2D<float4> tex4Copy;
+Texture2D<float4> tex4;
+
+SamplerState _LinearClamp;
+SamplerState _LinearRepeat;
+SamplerState _PointClamp;
+SamplerState _PointRepeat;
+
+ 
+ 
+[numthreads(8,8,1)]
+void CSMainT4(uint2 id : SV_DispatchThreadID)
+{
+    float w, h;
+    tex4Copy.GetDimensions(w, h);
+    float2 uv = float2(id.x/w, id.y/h);
+ 
+    float4 t = tex4.SampleLevel(_PointClamp, uv, 0);
+    tex4Copy[id] = t;
+}

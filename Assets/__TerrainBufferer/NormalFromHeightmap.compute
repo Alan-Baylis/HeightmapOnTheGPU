@@ -1,0 +1,25 @@
+﻿
+
+#pragma kernel CSMainT
+Texture2D<float4> inHeightTex;
+//RWTexture2D<float4> outHeightTex;
+RWTexture2D<float4> outNormal;
+
+
+SamplerState _LinearClamp;
+SamplerState _LinearRepeat;
+SamplerState _PointClamp;
+SamplerState _PointRepeat;
+
+ 
+ 
+[numthreads(16,16,1)]
+void CSMainT(uint2 id : SV_DispatchThreadID)
+{
+    float w, h;
+    inHeightTex.GetDimensions(w, h);
+    float2 uv = float2(id.x/w, id.y/h);
+ 
+    float4 t = inHeightTex.SampleLevel(_PointClamp, uv, 0);
+    outNormal[id] = t;
+}

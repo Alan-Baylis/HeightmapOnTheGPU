@@ -1,0 +1,13 @@
+﻿#pragma kernel CSMain
+ 
+ConsumeStructuredBuffer<float3> consumeBuffer;
+ 
+[numthreads(64,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+ 
+
+    	consumeBuffer.Consume();
+
+ 
+}

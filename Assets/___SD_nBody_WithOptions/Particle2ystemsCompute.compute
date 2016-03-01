@@ -1,0 +1,207 @@
+﻿struct PartSysPropComputeModel
+{
+	int matID;
+	int emitModel;
+	float3 emitPos;
+	float4 emitDirSize;
+	
+	float3 initVelObj;
+	float3 initVelTan;
+	
+	float3 constForceObj;
+	float3 constForceTan;
+	float initLife;
+};
+struct ParticleData
+{
+	float3 pos;
+	float3 vel;
+	float age;
+	int typeID;
+};
+#define PI 3.1415926f
+
+#pragma kernel CSMarch
+float _DeltaTime;
+float _CurTime;
+
+
+
+
+StructuredBuffer<ParticleData> RpartData;
+RWStructuredBuffer<ParticleData> WpartData;
+
+
+
+StructuredBuffer<PartSysPropComputeModel> RpartSysProperties;
+//Seperate Particle System's emission position into a seperate buffer which gets transferred to gpu every frame? call it an emitterID or emitterPosition
+
+[numthreads(64,1,1)]
+void CSMarch (uint3 id : SV_DispatchThreadID)
+{
+	float truID = id.x; //+ id.x*id.y + id.x*id.y*id.z;
+	ParticleData pDat = RpartData[truID];
+	pDat.age -= _DeltaTime;
+	
+	if(pDat.age <= 0)
+	{
+		pDat.vel = 0;
+		pDat.pos = 0; 	
+		pDat.typeID = -1;
+		pDat.age = 0;
+		WpartData[truID] = pDat;
+	}
+	else
+	{
+		PartSysPropComputeModel partType = RpartSysProperties[pDat.typeID];
+		float3 nVel = normalize(pDat.vel);
+		float3 dirFromEmit = normalize(pDat.pos - partType.emitPos);
+		
+		if(length(pDat.vel) == 0)
+			nVel = dirFromEmit;
+		
+		//SHOULD THIS BE CROSS OF NVEL INTEAD?!??!! IT WOULD BE MORE ACCURATE!!!!??!?!?!
+		float3 rightTan = cross(dirFromEmit, float3(0,1,0));
+		float3 upTan = cross(rightTan, nVel);
+
+		float3 deltaV = partType.constForceObj + nVel*partType.constForceTan.z + rightTan*partType.constForceTan.x + upTan*partType.constForceTan.y;
+		
+		pDat.vel += deltaV*_DeltaTime;
+		pDat.pos += pDat.vel*_DeltaTime; //= vel;
+		WpartData[truID] = pDat;
+	}
+}
+
+
+
+
+#pragma kernel CSGetRenderReady
+StructuredBuffer<ParticleData> RendRpartData;
+StructuredBuffer<PartSysPropComputeModel> RendRpartSysProperties;
+AppendStructuredBuffer<ParticleData> WappendData;
+
+int _MatIDToCheck;
+
+[numthreads(64,1,1)]
+void CSGetRenderReady(uint3 id: SV_DispatchThreadID)
+{
+	int truID = id.x;
+	ParticleData pDat = RendRpartData[truID];
+	if(pDat.typeID != -1)
+		if(RendRpartSysProperties[pDat.typeID].matID == _MatIDToCheck)
+		{
+			WappendData.Append(pDat);
+		}
+}
+
+
+#pragma kernel CSConsumeBuffer
+StructuredBuffer<ParticleData> ConsRpartData;
+StructuredBuffer<PartSysPropComputeModel> ConsRpartSysProperties;
+ConsumeStructuredBuffer<ParticleData> ConsumeData;
+[numthreads(64,1,1)]
+void CSConsumeBuffer(uint3 id: SV_DispatchThreadID)
+{	
+	int truID = id.x;
+	ParticleData pDat = RendRpartData[truID];
+	if(pDat.typeID != -1)
+		if(RendRpartSysProperties[pDat.typeID].matID == _MatIDToCheck)
+		{
+			ConsumeData.Consume();
+		}
+}
+
+
+
+#pragma kernel CSAddNewParticles
+
+/*struct PartSysPropComputeModel
+	int matID;
+	int emitModel;
+	float3 emitPos;
+	float4 emitDirSize;
+	
+	float3 initVelObj;
+	float3 initVelTan;
+	
+	float3 constForceObj;
+	float3 constForceTan;
+	float initLife;
+struct ParticleData
+	float3 pos;
+	float3 vel;
+	float age;
+	int typeID;
+*/
+
+StructuredBuffer<ParticleData> RaddPartData;
+RWStructuredBuffer<ParticleData> WaddPartData;
+
+StructuredBuffer<PartSysPropComputeModel> RaddPartSysProperties;
+
+int typeIDtoAdd;
+int totalMaxParticles;
+
+float pseudoRand(float seed)
+{//_CurTime _DeltaTime
+    float noise = frac(sin(dot( float2(frac(seed*0.7 - abs(sin(4*_CurTime))), cos(seed*_DeltaTime*60 - frac(_CurTime*7.731)))  ,float2(12.9898,78.233)*2.0 ) ) * 43758.5453);
+    return noise;
+}
+
+
+//0
+ParticleData SphereEmmission(int parSeed, PartSysPropComputeModel parType)
+{
+	ParticleData newPart;
+	float horzAngle = pseudoRand(parSeed)*2*PI;
+	float vertAngle = pseudoRand(horzAngle + (int)(parSeed*PI+ 777))*4*PI-2*PI;
+	float dist = pseudoRand(vertAngle + parSeed*PI*0.7 - 15.7*parSeed - 127.3);
+	
+	
+	float2 horzSlice = float2(cos(horzAngle),sin(horzAngle));
+	float2 vertSlice = float2(cos(vertAngle),sin(vertAngle));
+	newPart.pos = float3(horzSlice.x*vertSlice.x, vertSlice.y, horzSlice.y*vertSlice.x);
+	newPart.pos *= parType.emitDirSize.w*dist;
+	
+	
+	float3 dirFromEmit = normalize(newPart.pos - parType.emitPos);
+
+	float3 rightTan = cross(dirFromEmit, float3(0,1,0));
+	float3 upTan = cross(rightTan, dirFromEmit);
+	newPart.vel = parType.initVelObj + upTan*parType.initVelTan.y + rightTan*parType.initVelTan.x + dirFromEmit*parType.initVelTan.z;
+	
+	
+	newPart.age = parType.initLife;
+	newPart.typeID = typeIDtoAdd;
+	return newPart;
+}
+
+[numthreads(1,1,1)]
+void CSAddNewParticles(uint id: SV_DispatchThreadID)
+{
+	int counter = id+1;
+	for(int i = 0; i < totalMaxParticles; i++)
+	{
+		if(RaddPartData[i].typeID == -1)
+		{
+			counter --;
+			if(counter == 0)
+			{
+				PartSysPropComputeModel pType = RaddPartSysProperties[typeIDtoAdd];
+				ParticleData newParticle;
+				newParticle = SphereEmmission(counter + i + (int)_CurTime, pType);
+				WaddPartData[i] = newParticle;
+
+				if(pType.emitModel == 0)
+				{
+					//ADD THE PARTICLE HERE YA DINGUS;
+				}
+				break;
+			}
+		}
+		else
+		{
+			WaddPartData[i] = RaddPartData[i];
+		}
+	}
+} 

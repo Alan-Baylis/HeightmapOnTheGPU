@@ -1,0 +1,29 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+float3 _MouseOrigin, _MouseRay;
+float _DeltaTime, _MouseCastSize;
+
+
+
+struct posVelUV
+{
+	float3 pos;
+	float3 vel;
+	float2 uv;
+};
+
+RWStructuredBuffer<posVelUV> dataBuffer;
+
+
+[numthreads(64,1,1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    // TODO: insert actual code here!
+    dataBuffer[id.x].pos += dataBuffer[id.x].vel*_DeltaTime;			
+}
+
+

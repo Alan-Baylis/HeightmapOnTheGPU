@@ -1,0 +1,24 @@
+﻿#pragma kernel CSMain
+ 
+AppendStructuredBuffer<float3> appendBuffer;
+ 
+float size;
+float width;
+int bufferSizeMax;
+ 
+[numthreads(64,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+ 
+    //Normalize pos
+    float3 tempID =	float3(1, (int)(id.x/(int)width),1);
+    tempID.x = id.x - tempID.y*width;
+    float3 pos = tempID / (width);
+ 	
+    //make pos range from -size to +size
+    pos = (pos - 0.5) * 2.0 * size;
+    //keep z pos at 0
+    pos.z = 0.0;
+ 
+        appendBuffer.Append(  pos );
+}

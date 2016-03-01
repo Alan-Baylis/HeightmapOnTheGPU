@@ -1,0 +1,308 @@
+﻿//TODO: Edit the Buffers to be float 2; with the second float being the age. then subtract delta time each frame, and lerp the value out
+#pragma kernel CSImpactDetect
+RWStructuredBuffer<float2> WriteBuffer;
+StructuredBuffer<float2> ReadBuffer;
+RWTexture2D<float4> outHeightMap;
+Texture2D<float4> existingMap;
+
+float2 _FallOffSteepnessOffset;
+float4x4 _CubeTransformMatrix;
+
+float maxAge = 100000000;
+float lerpOutTime = 100000;
+float4 _ObjectPosition;
+float4 _ObjectPositionB;
+float4 _ObjectPositionC;
+
+
+
+float2 _TimeAndDeltaTime;
+
+float3 _Offset;
+float4 _HeightmapDims;
+//_HeightmapDims = x and z are the unit size that the texture is stretched out across (dimensions of the plane)
+//				= y is the height of the displacement map, w is the height of the core map
+ 
+ //calculates the change in height and the age of the splotch  (0 = no impact) and its inverted, so positives = lower terrain
+float2 calculateImpact(float3 parPos, float4 ObjData, float age)
+{
+	float3 diff = parPos - ObjData.xyz;
+	float dist = length(diff);
+	dist/= ObjData.w;
+	float clmpDist = saturate(dist);
+	
+	float insideBool = 1 - floor(clmpDist);
+	float aboveBool = (diff.y/abs(diff.y))*0.5 + 0.5;
+
+	float d = length(diff.xz);
+	float h = sqrt(max(0,pow(ObjData.w,2) - pow(d,2)));
+	h = lerp(0, h , insideBool);
+	float hAboveRadB = h+diff.y;//height above the bottom of the sphere;
+	
+	
+	float newHEIGHT = lerp( 0, hAboveRadB, insideBool);//returns 0 if not within the sphere.
+	
+	float newAGE = lerp(age - _TimeAndDeltaTime.y,maxAge,insideBool);
+	
+	
+	return float2(newHEIGHT, newAGE);
+}
+
+float betweenTwoPointsFalloff(float alpha, float2 minMax, float fallOffSlope, float fallOffOffset)
+{
+	float halfwidth = 0.5*(minMax.y - minMax.x);
+	return saturate(fallOffOffset + fallOffSlope*(halfwidth - abs(alpha  - minMax.x- halfwidth )));
+}
+
+float betweenTwoPoints0pointCalc(float alpha, float2 minMax)
+{
+	float halfWidth = 0.5*(minMax.y - minMax.x);
+	return saturate(ceil(1 - 2/(minMax.y - minMax.x)* abs(alpha - minMax.x -halfWidth )));
+}
+
+//calculates the change in height and the age of the splotch  (0 = no impact) and its inverted, so positives = terrain will lower (Hmap will become darker)
+float2 calculateImpact(float3 parPos, float4x4 ObjData, float age)
+{
+	float3 newPos= mul(ObjData, float4(parPos,1)).xyz;
+	float c1, c2, c3,cF;//InsideBoolz
+	float2 negHalfPosHalf = float2(-.5, .5);
+	c1 = betweenTwoPoints0pointCalc(newPos.x, negHalfPosHalf);
+	c2 = betweenTwoPoints0pointCalc(newPos.y, negHalfPosHalf);
+	c3 = betweenTwoPoints0pointCalc(newPos.z, negHalfPosHalf);
+	
+	
+	c1 = betweenTwoPointsFalloff(newPos.x, negHalfPosHalf, _FallOffSteepnessOffset.x, _FallOffSteepnessOffset.y);
+	c2 = betweenTwoPointsFalloff(newPos.y, negHalfPosHalf, _FallOffSteepnessOffset.x, _FallOffSteepnessOffset.y);
+	c3 = betweenTwoPointsFalloff(newPos.z, negHalfPosHalf, _FallOffSteepnessOffset.x, _FallOffSteepnessOffset.y);
+
+	cF = c1*c2*c3;
+	
+	float newAGE = lerp(age - _TimeAndDeltaTime.y , maxAge , lerp(cF,1,lerp(cF,1,cF)));
+	float newHEIGHT = lerp(0, 1, cF);
+	return float2(newHEIGHT, newAGE);
+}
+
+
+
+float2 doImpacts(float3 parPos, float curAge)
+{
+	float2 f1 = calculateImpact(parPos,_ObjectPosition, curAge);
+	float2 f2 = calculateImpact(parPos,_ObjectPositionB,curAge);
+	float2 f3 = calculateImpact(parPos,_ObjectPositionC,curAge);
+	float2 f4 = calculateImpact(parPos, _CubeTransformMatrix,curAge);
+	
+	
+		
+	return max(max(max(f1,f2),f3),f4);//float2(max(max(f1.x, f2.x), f3.x), max(max(f1.y, f2.y), f3.y));
+}
+ 
+SamplerState _LinearClamp;
+SamplerState _LinearRepeat;
+SamplerState _PointClamp;
+SamplerState _PointRepeat;
+
+[numthreads(32,1,1)]
+void CSImpactDetect(uint id : SV_DispatchThreadID)
+{
+	float w, h;
+    outHeightMap.GetDimensions(w,  h);
+    
+    uint2 pix = uint2(id%w, id/w);
+   	float2 uv = float2(((float)pix.x)/w, ((float)pix.y)/h);
+   	
+   	float2 readVal = ReadBuffer[id];
+   	//0000 = ReadBuffer[id]*_HeightmapDims.y
+   	float baseMapHeight = existingMap.SampleLevel(_PointClamp, uv, 0).y * _HeightmapDims.w;
+   	float curMappedHeight =  (readVal.x - 1)*_HeightmapDims.y + baseMapHeight;
+   	
+   	float3 varPos = float3(uv.x*_HeightmapDims.x, curMappedHeight , uv.y*_HeightmapDims.z) + _Offset;
+   	float2 result = doImpacts(varPos,readVal.y);
+   	//float newheight = curMappedHeight - baseMapHeight - ((result.x/_HeightmapDims.y) + 1);
+   	float newheight = readVal.x - result.x;
+   	//curMappedHeight - baseMapHeight - 
+   	
+   	//newheight /= _HeightmapDims.y;
+   	newheight = lerp(newheight, 1, saturate(-result.y/lerpOutTime));
+
+   	WriteBuffer[id] = float2(newheight, result.y);
+}
+
+
+
+#pragma kernel CSCopyBufferToRenderTexture
+
+[numthreads(16,16,1)]
+void CSCopyBufferToRenderTexture(uint2 id : SV_DispatchThreadID)
+{
+    int w, h;
+    outHeightMap.GetDimensions(w, h);
+ 
+ 	uint index = id.x+ id.y*w;
+    //float4 t = tex4.SampleLevel(_PointClamp, uv, 0);
+    //heightMap[id] = t;
+   	float2 uv = float2(((float)id.x)/(float)w, ((float)id.y)/(float)h);
+   	float val = saturate(ReadBuffer[index].x);
+   	float baseMapHeight = existingMap.SampleLevel(_PointClamp, uv, 0).y * _HeightmapDims.w;
+
+   	float curMappedHeight =  (val-1)*_HeightmapDims.y + baseMapHeight; //+ t.y;
+	float fin = curMappedHeight/_HeightmapDims.w;
+	
+    outHeightMap[id] = float4(fin, val,fin,1);
+}
+
+
+
+
+#pragma kernel CSWhipe
+
+[numthreads(32,1,1)]
+void CSWhipe(uint id : SV_DispatchThreadID)
+{
+    WriteBuffer[id] = float2(1,0);
+}
+
+
+
+
+
+#pragma kernel CSProcGen
+
+Texture2D<float4> _Gradient2D;
+Texture2D<float4> _PermTable1D;
+
+float _Frequency;
+float _Lacunarity;
+float _Gain;
+
+
+	float2 fade(float2 t)
+	{
+	
+		return t * t * t * (t * (t * 6 - 15) + 10);
+	}
+	
+	float perm(float x)
+	{
+		return _PermTable1D.SampleLevel(_PointRepeat, float2(x,0), 0).w;
+	}
+	
+	float grad(float x, float2 p)
+	{
+				
+
+		float2 g = _Gradient2D.SampleLevel(_PointRepeat, float2(x*8.0, 0),0).xy *2.0 - 1.0;
+		return dot(g, p);
+	}
+				
+	float inoise(float2 p)
+	{
+		float2 P = fmod(floor(p), 256.0);	// FIND UNIT SQUARE THAT CONTAINS POINT
+	  	p -= floor(p);                      // FIND RELATIVE X,Y OF POINT IN SQUARE.
+		float2 f = fade(p);                 // COMPUTE FADE CURVES FOR EACH OF X,Y.
+	
+		P = P / 256.0;
+		const float wone = 1.0 / 256.0;
+		
+	    // HASH COORDINATES OF THE 4 SQUARE CORNERS
+	  	float Aa = perm(P.x) + P.y;
+	  	float B = perm(P.x + wone) + P.y;
+	 
+		// AND ADD BLENDED RESULTS FROM 4 CORNERS OF SQUARE
+	  	return lerp( lerp( grad(perm(Aa   ), p ),  
+	                       grad(perm(B    ), p + float2(-1, 0) ), f.x),
+	                 lerp( grad(perm(Aa+wone   ), p + float2(0, -1) ),
+	                       grad(perm(B+wone    ), p + float2(-1, -1) ), f.x), f.y);
+	                           
+	}
+	
+	// fractal sum, range -1.0 - 1.0
+	float fBm(float2 p, int octaves)
+	{
+		float freq = _Frequency, amp = 0.5;
+		float sum = 0;	
+		for(int i = 0; i < octaves; i++) 
+		{
+			sum += inoise(p * freq) * amp;
+			freq *= _Lacunarity;
+			amp *= _Gain;
+		}
+		return sum;
+	}
+	
+	// fractal abs sum, range 0.0 - 1.0
+	float turbulence(float2 p, int octaves)
+	{
+		float sum = 0;
+		float freq = _Frequency, amp = 1.0;
+		for(int i = 0; i < octaves; i++) 
+		{
+			sum += abs(inoise(p*freq))*amp;
+			freq *= _Lacunarity;
+			amp *= _Gain;
+		}
+		return sum;
+	}
+	
+	// Ridged multifractal, range 0.0 - 1.0
+	// See "Texturing & Modeling, A Procedural Approach", Chapter 12
+	float ridge(float h, float paroffset)
+	{
+	    h = abs(h);
+	    h = paroffset - h;
+	    h = h * h;
+	    return h;
+	}
+	
+	float ridgedmf(float2 p, int octaves, float paroffset)
+	{
+	
+		float sum = 0;
+		float freq = _Frequency, amp = 0.5;
+		float prev = 1.0;
+		for(int i = 0; i < octaves; i++) 
+		{
+			float n = ridge(inoise(p*freq), paroffset);
+			sum += n*amp*prev;
+			prev = n;
+			freq *= _Lacunarity;
+			amp *= _Gain;
+		}
+		return sum;
+	}
+
+		
+
+
+RWStructuredBuffer<float> WProcGenBuff;
+StructuredBuffer<float> RProcGenBuff;
+float2 sheetOffset;
+int _ProcSize;
+[numthreads(32,1,1)]
+void CSProcGen(uint id : SV_DispatchThreadID)
+{
+    int x, y;
+  	y = id/_ProcSize;
+  	x = id - y*_ProcSize;
+   	float2 UV = float2(((float)x)/(float)_ProcSize, ((float)y)/(float)_ProcSize);
+
+    WProcGenBuff[id] = fBm(UV+sheetOffset,2);
+}
+
+#pragma kernel CSHeightCheck
+
+float2 _CheckPosition;
+float _CheckHeight;
+Texture2D<float4> _CheckThisTexture;
+
+RWStructuredBuffer<float3> _CheckedHeightData;
+
+
+[numthreads(1,1,1)]
+void CSHeightCheck(uint id : SV_DispatchThreadID)
+{
+	float2 uvPos = (_CheckPosition-_Offset.xz)/_HeightmapDims.xz;
+	_CheckHeight = _CheckThisTexture.SampleLevel(_LinearClamp, uvPos, 0).x*_HeightmapDims.w + _Offset.y;
+	_CheckedHeightData[0] = float3(uvPos.x, uvPos.y, _CheckHeight);
+}
+
+
